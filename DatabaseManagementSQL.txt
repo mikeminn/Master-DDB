@@ -1,0 +1,167 @@
+-- Create tables
+DROP TABLE IF EXISTS sales CASCADE;
+DROP TABLE IF EXISTS metaScores CASCADE;
+DROP TABLE IF EXISTS userReviews CASCADE;
+DROP TABLE IF EXISTS expertReviews CASCADE;
+
+CREATE TABLE sales(
+	Sales_date DATE,	
+	Sales_title VARCHAR(2000),	
+	Sales_international_box_office BIGINT,
+	Sales_domestic_box_office BIGINT,
+	Sales_production_budget BIGINT,	
+	Sales_MovieID varchar(15) PRIMARY KEY
+);
+
+CREATE TABLE metaScores(
+	metaScore_ID varchar(15) PRIMARY KEY,
+	metaScore_runtime smallint,
+	metaScore_MovieID varchar(15),
+	
+CONSTRAINT fk_metaMovieID
+	FOREIGN KEY(metaScore_MovieID)
+		REFERENCES sales(Sales_MovieID)
+);
+
+CREATE TABLE userReviews(
+	userReviews_UrID varchar(50) PRIMARY KEY,
+	userReviews_MovieID varchar(15),
+	userReviews_idvscore smallint,
+	userReviews_reviewer varchar(1000),
+	userReviews_date DATE,
+	
+CONSTRAINT fk_userMovieID
+	FOREIGN KEY(userReviews_MovieID)
+		REFERENCES sales(Sales_MovieID)
+);
+
+CREATE TABLE expertReviews(
+	ExpertReviews_ErID varchar(50) PRIMARY KEY,
+	ExpertReviews_MovieID varchar(15),
+	ExpertReviews_idvscore smallint,
+	ExpertReviews_reviewer varchar(1000),
+	ExpertReviews_date DATE,
+	
+CONSTRAINT fk_expertMovieID
+	FOREIGN KEY(ExpertReviews_MovieID)
+		REFERENCES sales(Sales_MovieID)
+);
+
+-- Import data
+    COPY sales(
+        Sales_date, Sales_title, Sales_international_box_office, Sales_domestic_box_office, Sales_production_budget, Sales_MovieID)
+    FROM 'C:\\Users\\Public\\Database Management\\Datasets\\sales.csv'
+    DELIMITER ';'
+    CSV HEADER
+    ;
+
+    COPY metaScores(
+        metaScore_ID, metaScore_runtime, metaScore_MovieID)
+    FROM 'C:\\Users\Public\\Database Management\\Datasets\\metaScores.csv'
+    DELIMITER ';'
+    CSV HEADER
+    ;
+
+    COPY userReviews(
+        userReviews_UrID, userReviews_MovieID, userReviews_idvscore, userReviews_reviewer, userReviews_date)
+    FROM 'C:\\Users\\Public\\Database Management\\Datasets\\UserReviews.csv'
+    DELIMITER ';'
+    CSV HEADER
+    ;
+
+    COPY expertReviews(
+        ExpertReviews_ErID, ExpertReviews_MovieID, ExpertReviews_idvscore, ExpertReviews_reviewer, ExpertReviews_date)
+    FROM 'C:\\Users\\Public\\Database Management\\Datasets\\ExpertReviews.csv'
+    DELIMITER ';'
+    CSV HEADER
+    ; 
+
+--Create a binary column in the sales table, where the dates that are in the 'winter' period get assigned a '1'.
+ALTER TABLE sales ADD COLUMN binarywinter CHAR(1);
+
+UPDATE sales
+	SET binarywinter = CASE WHEN DATE_PART('MONTH', SALES_DATE) = 12 
+		OR DATE_PART('MONTH', SALES_DATE) <= 3
+			THEN 1	
+	ELSE 0
+END;
+
+--Create a binary column in the sales table, where the movies that have a title shorter than 10 or 10 characters get assigned a '1'.
+ALTER TABLE sales ADD COLUMN binarylength CHAR(1);
+
+UPDATE sales
+	SET binarylength = CASE WHEN LENGTH(sales_title) <=10
+			THEN 1	
+	ELSE 0
+END;
+
+--Function 1: Sales and Date per MovieID to CSV (sumSalesWinterBinary)
+	--To support hypothesis: Movies released in winter have more sales 
+COPY(
+SELECT sales_movieid, sales_title, SUM(sales_international_box_office) + SUM(sales_domestic_box_office) as "Total sales", sales_date, binarywinter
+	FROM sales
+GROUP BY 
+	sales_movieid
+ORDER BY 
+	"Total sales" asc)
+TO 'C:\\Users\Public\\Database Management\\Exports\\sumSalesWinterBinary.csv'
+WITH DELIMITER ';' 
+CSV HEADER;
+
+--Function 2: Sales and budget per MovieID to CSV (sumSalesBudget)
+	--To support hypothesis: Big budget movies generate more sales
+COPY(
+SELECT sales_movieid, sales_title, SUM(sales_international_box_office) + SUM(sales_domestic_box_office) as "Total sales", sum(Sales_production_budget) as "Budget"
+	FROM sales
+GROUP BY 
+	sales_movieid
+ORDER BY 
+	"Total sales" asc)
+TO 'C:\\Users\Public\\Database Management\\Exports\\sumSalesBudget.csv'
+WITH DELIMITER ';' 
+CSV HEADER;
+
+--Function 3: UserReviews per MovieID to CSV (countUserReviews)
+	--To support hypothesis: Big budget movies have more userReviews
+COPY(
+SELECT sales.sales_movieid, sales.sales_title, count(userreviews.userreviews_urid) as "Occurence UR", SUM(sales_international_box_office) + SUM(sales_domestic_box_office) as "Total sales", sum(Sales_production_budget) as "Budget"
+	FROM sales RIGHT JOIN userreviews
+		on sales.sales_movieid = userreviews.userreviews_movieid
+	GROUP BY 
+		sales.sales_movieid
+	ORDER BY
+		"Occurence UR" DESC)
+TO 'C:\\Users\Public\\Database Management\\Exports\\CountUserReviews.csv'
+WITH DELIMITER ';' 
+CSV HEADER;
+
+--Function 4: ExpertReviews per MovieID to CSV (countExpertReviews)
+	--To support hypothesis: Big budget movies have more expertReviews
+COPY(
+SELECT sales.sales_movieid, sales.sales_title, count(expertreviews_erid) as "Occurence ER", SUM(sales_international_box_office) + SUM(sales_domestic_box_office) as "Total sales", sum(Sales_production_budget) as "Budget"
+	FROM sales RIGHT JOIN expertreviews
+		on sales.sales_movieid = expertreviews.expertreviews_movieid
+	GROUP BY 
+		sales.sales_movieid
+	ORDER BY
+		"Occurence ER" ASC)
+TO 'C:\\Users\Public\\Database Management\\Exports\\CountExpertReviews.csv'
+WITH DELIMITER ';' 
+CSV HEADER;
+
+--Function 5: Sum Runtime per MovieID to CSV (sumTitleCharacters)
+	--To support hypothesis: Movies with a shorter title (<= 10 characters) have more sales
+COPY(
+SELECT sales.sales_movieid, sales.sales_title, SUM(sales_international_box_office) + SUM(sales_domestic_box_office) as "Total sales", sum(Sales_production_budget) as "Budget", binarylength 
+	FROM sales RIGHT JOIN metascores
+		on sales.sales_movieid = metascores.metascore_movieid
+	GROUP BY 
+		sales.sales_movieid
+	ORDER BY
+		"Total sales" ASC)
+TO 'C:\\Users\Public\\Database Management\\Exports\\sumTitleCharacters.csv'
+WITH DELIMITER ';' 
+CSV HEADER;
+
+
+
